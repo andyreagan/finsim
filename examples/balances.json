@@ -1,0 +1,19 @@
+{
+ "as_of": "2026-01-01",
+ "source": "example (fictional)",
+ "buckets": {
+  "cash": 40000,
+  "taxable": 250000,
+  "pretax": 450000,
+  "roth": 90000,
+  "hsa": 25000,
+  "b457": 0,
+  "lti": 0,
+  "whole_life": 0,
+  "home_value": 550000,
+  "mortgage": 180000,
+  "student_loans": 0,
+  "utma": 0,
+  "529": {"Riley": 45000}
+ }
+}

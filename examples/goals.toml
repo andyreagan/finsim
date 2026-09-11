@@ -1,0 +1,163 @@
+# Example household configuration — the complete input contract.
+# A fictional couple: Jordan (primary, owns the retirement accounts)
+# and Casey, one kid, planning an early downshift.
+# All dollars are TODAY'S (real) dollars; all returns are REAL.
+
+[[people]]
+name = "jordan"
+birth_year = 1985
+sex = "female"
+ss_annual = 30000          # PIA estimate, today's dollars
+ss_claim_age = 67
+
+[[people]]
+name = "casey"
+birth_year = 1987
+sex = "male"
+ss_annual = 18000
+ss_claim_age = 67
+
+[market]
+equity_real_return = 0.05
+equity_vol = 0.16
+bond_real_return = 0.015
+bond_vol = 0.05
+equity_weight = 0.80
+return_model = "historical"   # RPM-style bootstrap; or "normal"
+recenter_historical = true
+tips_real_yield = 0.02
+
+[[contributions]]
+from_year = 2026
+to_year = 2039
+pretax_annual = 23000
+match_annual = 6000
+mega_backdoor_annual = 0
+hsa_annual = 8300
+backdoor_roth_annual = 7000
+
+[rules]
+penalty_free_age = 60
+early_withdrawal_penalty = 0.10
+roth_basis_fraction = 0.70
+rmd_age = 75
+reverse_mortgage_min_age = 62
+b457_initial_pretax_frac = 0.0
+p457_deduct = 0.27
+
+[strategy]
+name = "wl_bridge"
+ladder_annual = 0
+ladder_eff_tax = 0.15
+
+[[income.jordan]]
+from_year = 2026
+to_year = 2039
+gross = 180000
+eff_tax = 0.26
+real_growth = 0.00
+
+[[income.casey]]
+from_year = 2026
+to_year = 2044
+gross = 70000
+eff_tax = 0.22
+real_growth = 0.01
+
+[spending]
+base = 95000
+retirement_base = 80000
+mortgage_annual = 30000
+mortgage_payoff_year = 2036
+student_loan_annual = 0
+student_loan_from = 1
+student_loan_to = 0
+
+[spending.health]
+spouse_working_annual = 10000
+pre_medicare_annual = 18000
+aca = true
+aca_premium_portion = 14000
+medicare_annual = 9000
+
+[retirement]
+retirement_year = 2040
+
+[college]
+target_today = 90000
+monthly_contrib = 300
+years_in_college = 4
+real_cost_growth = 0.01
+
+[[college.kids]]
+name = "Riley"
+start_year = 2036
+
+[whole_life]
+premiums_annual = 0
+cv_premium_credit = 0.0
+cv_real_growth = 0.0
+drainable = true
+
+[home]
+real_appreciation = 0.005
+reverse_mortgage_ltv = 0.50
+selling_costs = 0.06
+
+[lti]
+eff_tax = 0.35
+payout_years = 1
+
+[taxes]
+mode = "brackets"
+filing = "mfj"
+state = "MA"                  # see finsim.tax.STATES; "none" for no state tax
+bracket_ref_withdrawal = 60000
+pretax_withdrawal_eff = 0.15  # effective-mode fallback
+taxable_gain_fraction = 0.40
+capital_gains_rate = 0.20     # effective-mode fallback
+taxable_dividend_drag = 0.0035
+cpi = 0.025
+ma_estate_tax = true
+ma_estate_exclusion = 2000000
+
+[simulation]
+n_sims = 5000
+seed = 42
+horizon_age = 100
+
+# ── Scenarios: tables deep-merged over the base ─────────────────────────
+[scenarios.lean]
+[scenarios.lean.spending]
+base = 85000
+retirement_base = 70000
+
+[scenarios.guardrails_gk]
+# Canonical Guyton-Klinger spending rules
+[scenarios.guardrails_gk.spending.guardrails]
+enabled = true
+style = "gk"
+upper = 1.20
+lower = 0.80
+adjust = 0.10
+floor = 0.75
+ceiling = 1.50
+inflation_rule = true
+
+[scenarios.work_longer]
+[[scenarios.work_longer.income.jordan]]
+from_year = 2026
+to_year = 2044
+gross = 180000
+eff_tax = 0.26
+real_growth = 0.00
+[scenarios.work_longer.retirement]
+retirement_year = 2045
+[[scenarios.work_longer.contributions]]
+from_year = 2026
+to_year = 2044
+pretax_annual = 23000
+match_annual = 6000
+mega_backdoor_annual = 0
+hsa_annual = 8300
+backdoor_roth_annual = 7000

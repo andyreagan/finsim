@@ -1,0 +1,25 @@
+[project]
+name = "finsim"
+version = "0.1.0"
+description = "Behavioral, auditable, path-wise Monte Carlo engine for household financial planning"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+authors = [{name = "Andy Reagan"}]
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26"]
+
+[project.optional-dependencies]
+beancount = ["beancount>=3"]
+
+[dependency-groups]
+dev = ["pytest>=8", "hypothesis>=6"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["finsim"]
