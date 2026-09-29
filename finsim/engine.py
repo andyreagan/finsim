@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Monte Carlo goals simulator.
 
-Pulls current balances from the beancount ledger (by tax bucket), reads
-assumptions from goals.toml, and simulates household cash flow year by
+Reads assumptions from goals.toml, current balances from a
+balances.json snapshot (or straight from a beancount ledger via the
+accounts.toml registry), and simulates household cash flow year by
 year until the planning horizon across many random return paths.
 
 Account rules modeled:
-  - contributions routed to their tax buckets while Andy works
-    (401k pre-tax + match, mega backdoor Roth, UC DCP/457b, HSA)
+  - contributions routed to their tax buckets while the primary earns
+    (401k pre-tax + match, mega backdoor Roth, governmental 457b, HSA)
   - 10% early-withdrawal penalty on pre-tax (and Roth earnings) before
     penalty_free_age; Roth basis withdrawable free anytime
   - RMDs from pre-tax starting at rmd_age (SECURE 2.0 Uniform Lifetime Table)
@@ -24,12 +25,14 @@ Return models:
     optionally recentered to the configured expected returns
   - "normal": i.i.d. normal draws
 
-Usage:
-    uv run python scripts/simulate.py                      # base case
-    uv run python scripts/simulate.py --scenario downshift
-    uv run python scripts/simulate.py --strategy taxable_first
-    uv run python scripts/simulate.py --deterministic      # expected-return trace
-    uv run python scripts/simulate.py --sims 50000 --json
+Usage (from the directory holding goals.toml + accounts.toml, or pass
+--goals/--accounts/--ledger/--balances explicitly):
+    finsim                            # base case
+    finsim --scenario downshift
+    finsim --strategy taxable_first
+    finsim --deterministic            # expected-return trace
+    finsim --sims 50000 --json
+    finsim --dump-balances            # snapshot the ledger to balances.json
 """
 
 import argparse
@@ -45,9 +48,6 @@ import numpy as np
 from finsim.ledger import load_ledger, to_usd  # noqa: E402
 from finsim.mortality import either_alive_curve  # noqa: E402
 
-ROOT = Path(__file__).parent.parent
-CONFIG = ROOT / "goals.toml"
-ACCOUNTS = ROOT / "accounts.toml"
 HIST = Path(__file__).parent / "historical_returns.json"
 
 # engine bucket types; the accounts.toml registry maps ledger accounts
@@ -91,10 +91,10 @@ ULT = {73: 26.5, 74: 25.5,
 
 def load_registry(path=None):
     """The accounts.toml registry: the executable account database."""
-    return tomllib.loads(Path(path or ACCOUNTS).read_text())["account"]
+    return tomllib.loads(Path(path or "accounts.toml").read_text())["account"]
 
 
-def get_buckets(main_bc: Path, registry=None):
+def get_buckets(main_bc: Path, registry=None, accounts=None):
     """Sum ledger balances into engine buckets as declared in
     accounts.toml (bucket + ledger_accounts [+ exclude, negate])."""
     from beancount.core import realization
@@ -117,7 +117,7 @@ def get_buckets(main_bc: Path, registry=None):
         node = node_at(path)
         return sum_tree(node) if node is not None else 0.0
 
-    registry = registry or load_registry()
+    registry = registry or load_registry(accounts)
     b = {k: 0.0 for k in BUCKET_SCALARS}
     b["529"] = {}
     for acct in registry:
@@ -155,7 +155,7 @@ def deep_merge(base, override):
 
 
 def load_config(scenario: str | None, path=None):
-    cfg = tomllib.loads(Path(path or CONFIG).read_text())
+    cfg = tomllib.loads(Path(path or "goals.toml").read_text())
     scenarios = cfg.pop("scenarios", {})
     if scenario:
         if scenario not in scenarios:
@@ -476,7 +476,7 @@ def simulate(cfg, buckets, n_sims, seed, strategy=None, deterministic=False,
         (ph["to_year"] for pp in people[1:]
          for ph in cfg["income"].get(pp["name"], [])), default=0
     )
-    # 457b unlocks when Andy separates from UC (last year of any income)
+    # 457b unlocks when the primary separates from the sponsor (last year of any income)
     primary_last_year = max(
         (ph["to_year"] for ph in cfg["income"].get(primary["name"], [])),
         default=0
@@ -556,8 +556,8 @@ def simulate(cfg, buckets, n_sims, seed, strategy=None, deterministic=False,
                 raised = gross
                 gross_taken = gross
         elif name == "b457":
-            # governmental 457b: no penalty ever, but locked until Andy
-            # separates from UC. Roth source tax-free; pre-tax source
+            # governmental 457b: no penalty ever, but locked until the
+            # primary separates. Roth source tax-free; pre-tax source
             # ordinary income. Pre-60: spend Roth first; post-60:
             # pre-tax first (burn the taxed source before RMD era).
             if yr > primary_last_year:
@@ -625,7 +625,7 @@ def simulate(cfg, buckets, n_sims, seed, strategy=None, deterministic=False,
                     ss_income += pp.get("ss_annual", 0)
         net_income += ss_income
 
-        # retirement-account contributions while Andy works: diverted from
+        # retirement-account contributions while the primary works: diverted from
         # cash flow into their buckets; match is employer money on top
         contrib_out = 0.0
         if yr < ret_year:
@@ -693,7 +693,7 @@ def simulate(cfg, buckets, n_sims, seed, strategy=None, deterministic=False,
             spend = sp["retirement_base"] * gmult.copy()
         else:
             spend = np.full(n_sims, float(sp["base"]))
-        # health insurance once employer coverage ends (while Andy works
+        # health insurance once employer coverage ends (while the primary works
         # it's covered inside base). In brackets mode the ACA years are
         # MAGI-aware (subsidy below 400% FPL, cliff above — conversions
         # and last year's realized gains price in), and Medicare years
@@ -1053,8 +1053,18 @@ def print_trace(res):
         )
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__)
+def main(argv=None, root=None):
+    """CLI entry. `root` is where goals.toml / accounts.toml / main.bc /
+    balances.json are looked for by default (cwd if None)."""
+    root = Path(root or ".")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--goals", type=Path, default=root / "goals.toml",
+                    help="assumptions + scenarios (default: goals.toml)")
+    ap.add_argument("--accounts", type=Path, default=root / "accounts.toml",
+                    help="account registry (default: accounts.toml)")
+    ap.add_argument("--ledger", type=Path, default=root / "main.bc",
+                    help="beancount ledger to read balances from (default: main.bc)")
     ap.add_argument("--scenario", help="named scenario from goals.toml")
     ap.add_argument("--list-scenarios", action="store_true")
     ap.add_argument("--strategy", choices=list(STRATEGIES))
@@ -1064,21 +1074,21 @@ def main():
     ap.add_argument("--seed", type=int)
     ap.add_argument("--json", action="store_true", help="emit JSON instead of text")
     ap.add_argument("--dump-balances", metavar="PATH", nargs="?",
-                    const=str(ROOT / "balances.json"),
+                    const=str(root / "balances.json"),
                     help="write the ledger bucket snapshot (the layer-2 "
                          "artifact goals.toml pairs with) and exit")
     ap.add_argument("--balances", metavar="PATH",
                     help="read buckets from a snapshot instead of the ledger")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
-    cfg, scenario_names = load_config(args.scenario)
+    cfg, scenario_names = load_config(args.scenario, path=args.goals)
     if args.list_scenarios:
         print("\n".join(scenario_names) or "(none)")
         return
 
     if args.dump_balances:
-        buckets = get_buckets(ROOT / "main.bc")
-        snap = {"as_of": str(date.today()), "source": "main.bc", "buckets": buckets}
+        buckets = get_buckets(args.ledger, accounts=args.accounts)
+        snap = {"as_of": str(date.today()), "source": str(args.ledger), "buckets": buckets}
         Path(args.dump_balances).write_text(json.dumps(snap, indent=1))
         print(f"wrote {args.dump_balances}")
         return
@@ -1086,7 +1096,7 @@ def main():
     if args.balances:
         buckets = json.loads(Path(args.balances).read_text())["buckets"]
     else:
-        buckets = get_buckets(ROOT / "main.bc")
+        buckets = get_buckets(args.ledger, accounts=args.accounts)
     res = simulate(
         cfg,
         buckets,

@@ -1,18 +1,13 @@
 """Numeric tests for the simulation engine's account rules.
 
-Portable: every test fabricates its own config and bucket snapshot —
-no ledger, no household config required.
-
 Each test fabricates a minimal config + bucket snapshot and checks the
 engine's arithmetic exactly (zero-return deterministic runs make the
-math closed-form). This is the audit layer for #3: every account rule
-the engine claims to model has a test that would catch its removal.
+math closed-form): every account rule the engine claims to model has a
+test that would catch its removal. Regression and invariant tests on a
+real household configuration live with that configuration.
 
 Run:  uv run pytest -q
 """
-
-import sys
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -20,66 +15,7 @@ import pytest
 from finsim import gen_returns, simulate  # noqa: E402
 from finsim import mortality  # noqa: E402
 
-THIS_YEAR = 2026  # tests assume the current year; engine uses date.today()
-
-
-def mini_cfg(**over):
-    """Minimal valid config: zero returns, one earner knob, no noise."""
-    cfg = {
-        "people": [
-            {"name": "andy", "birth_year": 1989, "sex": "male",
-             "ss_annual": 0, "ss_claim_age": 67},
-            {"name": "sam", "birth_year": 1990, "sex": "female",
-             "ss_annual": 0, "ss_claim_age": 67},
-        ],
-        "simulation": {"horizon_age": 45},  # horizon 2035, 10 sim years
-        "market": {"equity_real_return": 0.0, "equity_vol": 0.0,
-                   "bond_real_return": 0.0, "bond_vol": 0.0,
-                   "equity_weight": 1.0, "return_model": "normal"},
-        "income": {"andy": [], "sam": []},
-        "spending": {"base": 0, "retirement_base": 0,
-                     "mortgage_annual": 0, "mortgage_payoff_year": 0,
-                     "student_loan_annual": 0, "student_loan_from": 1,
-                     "student_loan_to": 0},
-        "retirement": {"retirement_year": 2027},
-        "college": {"target_today": 0, "monthly_contrib": 0,
-                    "years_in_college": 4, "real_cost_growth": 0.0,
-                    "kids": []},
-        "whole_life": {"premiums_annual": 0, "cv_premium_credit": 0.0,
-                       "cv_real_growth": 0.0, "drainable": True},
-        "home": {"real_appreciation": 0.0, "reverse_mortgage_ltv": 0.5,
-                 "selling_costs": 0.0},
-        "lti": {"eff_tax": 0.35, "payout_years": 4},
-        "taxes": {"pretax_withdrawal_eff": 0.15,
-                  "taxable_gain_fraction": 0.45, "capital_gains_rate": 0.20,
-                  "taxable_dividend_drag": 0.0},
-        "rules": {"penalty_free_age": 60, "early_withdrawal_penalty": 0.10,
-                  "roth_basis_fraction": 1.0, "rmd_age": 75,
-                  "reverse_mortgage_min_age": 62},
-        "contributions": {"pretax_annual": 0, "match_annual": 0,
-                          "mega_backdoor_annual": 0, "hsa_annual": 0},
-        "strategy": {"name": "wl_bridge", "ladder_annual": 0,
-                     "ladder_eff_tax": 0.17},
-    }
-    for k, v in over.items():
-        if isinstance(v, dict) and isinstance(cfg.get(k), dict):
-            cfg[k].update(v)
-        else:
-            cfg[k] = v
-    return cfg
-
-
-def buckets(**over):
-    b = {"cash": 0.0, "taxable": 0.0, "pretax": 0.0, "roth": 0.0,
-         "hsa": 0.0, "b457": 0.0, "lti": 0.0, "whole_life": 0.0,
-         "home_value": 0.0, "mortgage": 0.0, "student_loans": 0.0,
-         "529": {}, "utma": 0.0}
-    b.update(over)
-    return b
-
-
-def det(cfg, b):
-    return simulate(cfg, b, n_sims=1, seed=1, deterministic=True)
+from finsim.testing import THIS_YEAR, buckets, det, mini_cfg  # noqa: E402,F401
 
 
 # ── withdrawal taxation and ordering ────────────────────────────────────
@@ -370,15 +306,13 @@ def test_estate_net_of_taxes():
 
 # ── return models ───────────────────────────────────────────────────────
 
-MARKET_CFG = {"market": {"equity_real_return": 0.05, "equity_vol": 0.16,
-                         "bond_real_return": 0.015, "bond_vol": 0.05,
-                         "equity_weight": 0.90,
-                         "return_model": "historical",
-                         "recenter_historical": True}}
+MARKET = {"equity_real_return": 0.05, "equity_vol": 0.16,
+          "bond_real_return": 0.015, "bond_vol": 0.05, "equity_weight": 0.9,
+          "return_model": "historical", "recenter_historical": True}
 
 
 def test_historical_returns_recentered_moments():
-    cfg = MARKET_CFG
+    cfg = mini_cfg(market=dict(MARKET))
     rng = np.random.default_rng(7)
     rs, rb = gen_returns(cfg, 4000, 40, rng)
     m = cfg["market"]
@@ -392,9 +326,7 @@ def test_historical_returns_recentered_moments():
 
 
 def test_normal_model_moments():
-    import copy
-    cfg = copy.deepcopy(MARKET_CFG)
-    cfg["market"]["return_model"] = "normal"
+    cfg = mini_cfg(market=dict(MARKET, return_model="normal"))
     rng = np.random.default_rng(7)
     rs, rb = gen_returns(cfg, 4000, 40, rng)
     assert rs.mean() == pytest.approx(0.05, abs=0.005)
@@ -422,9 +354,6 @@ def test_mortality_weighted_health_bounds():
     # everyone ruins early, while certainly alive -> weighted ~ raw
     assert res["alive"].mean() == 0.0
     assert res["health_mortality"] < 5.0
-
-
-# ── integration: real config + fixed snapshot regression ───────────────
 
 
 def test_brackets_mode_matches_gross_up_solver():
@@ -485,4 +414,22 @@ def test_aca_subsidy_and_cliff():
     assert taxmod.aca_premium_cost(4.01 * fpl, 16_000) == 16_000
     assert taxmod.irmaa_couple(100_000) == 0
     assert taxmod.irmaa_couple(300_000) > taxmod.irmaa_couple(220_000) > 0
+
+
+def test_tips_sleeve_is_riskless_real():
+    """With a 100% TIPS glide the portfolio return is exactly the
+    locked real yield, regardless of market draws."""
+    cfg = mini_cfg(market={"equity_real_return": 0.05, "equity_vol": 0.16,
+                           "bond_real_return": 0.015, "bond_vol": 0.05,
+                           "equity_weight": 0.0, "return_model": "normal",
+                           "tips_real_yield": 0.02,
+                           "tips_glide": [{"year": 2026, "weight": 1.0},
+                                          {"year": 2100, "weight": 1.0}]})
+    res = simulate(cfg, buckets(taxable=100_000), n_sims=50, seed=3)
+    # zero spending: taxable compounds at exactly 2% real minus drag(0)
+    n = len(res["years"])
+    # taxable swept cash? cash=0; check via estate: 100k*(1.02^n)*0.91-ish
+    expected = 100_000 * 1.02 ** n
+    assert np.allclose(res["estate"], expected * (1 - 0.45 * 0.20), rtol=1e-9)
+
 

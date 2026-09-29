@@ -11,6 +11,9 @@ dependencies = ["numpy>=1.26"]
 [project.optional-dependencies]
 beancount = ["beancount>=3"]
 
+[project.scripts]
+finsim = "finsim.engine:main"
+
 [dependency-groups]
 dev = ["pytest>=8", "hypothesis>=6"]
 

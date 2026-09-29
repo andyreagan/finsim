@@ -58,9 +58,25 @@ Two ideas carry the architecture (see `docs/ARCHITECTURE.md`):
 
 ```bash
 uv sync
-uv run pytest -q            # the audit trail: ~60 tests in ~3s
+uv run pytest -q            # the audit trail: ~50 tests in ~2s
 uv run python examples/run.py
 ```
+
+Or drive it from the command line, from the directory that holds your
+`goals.toml` (and `accounts.toml` + a beancount ledger if you use one),
+or with explicit paths:
+
+```bash
+finsim                                   # base case Monte Carlo
+finsim --scenario downshift              # a named scenario
+finsim --deterministic                   # expected-return year table
+finsim --balances balances.json          # run from a snapshot, no ledger
+finsim --goals g.toml --accounts a.toml --ledger main.bc --dump-balances
+```
+
+`finsim.testing` exports the synthetic-household builders the unit
+tests use (`mini_cfg`, `buckets`, `det`), so a private repo can write
+its own invariant tests without copying fixtures.
 
 Inputs are three declarative files (see `examples/`):
 
