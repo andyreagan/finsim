@@ -19,6 +19,11 @@ FEDERAL = {
     "single": [(0, 0.10), (11_925, 0.12), (48_475, 0.22), (103_350, 0.24),
                (197_300, 0.32), (250_525, 0.35), (626_350, 0.37)],
 }
+# Calibration year of every table in this module (brackets, standard
+# deduction, FPL, IRMAA, thresholds). Bump it when the tables are updated;
+# downstream freshness reports read it.
+TABLE_YEAR = 2025
+
 STANDARD_DEDUCTION = {"mfj": 31_500, "single": 15_750}  # 2025 OBBBA
 # long-term capital gains: 0/15/20 thresholds on TAXABLE income, gains
 # stack on top of ordinary income
